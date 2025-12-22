@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GhostStack AR</title>
+
+<style>
+  body { margin:0; overflow:hidden; background:black; }
+  video, canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+  video { z-index:0; }
+  canvas { z-index:1; }
+ 
+  #instruction {
+    position:absolute;
+    top:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:rgba(0,0,0,0.6);
+    color:white;
+    padding:10px 16px;
+    border-radius:8px;
+    font-size:18px;
+    z-index:3;
+  }
+
+  #frame {
+    position:absolute;
+    width:420px;
+    height:300px;
+    border:2px dashed yellow;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    z-index:2;
+    pointer-events:none;
+  }
+
+  #palletConfirm {
+    position:absolute;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:rgba(0,0,0,0.7);
+    color:white;
+    padding:12px 18px;
+    border-radius:8px;
+    display:none;
+    z-index:4;
+    text-align:center;
+  }
+
+  button {
+    margin:6px 10px;
+    padding:6px 14px;
+    font-size:16px;
+  }
+</style>
+</head>
+
+<body>
+
+<div id="instruction">Place a pallet inside the yellow frame</div>
+<div id="frame"></div>
+
+<div id="palletConfirm">
+  <div id="palletText"></div>
+  <button id="confirmYes">Yes</button>
+  <button id="confirmNo">No</button>
+</div>
+
+<video id="camera" autoplay playsinline></video>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+<script src="ar.js"></script>
+
+</body>
+</html>
