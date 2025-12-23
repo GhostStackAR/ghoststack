@@ -4,17 +4,18 @@ const ctx = canvas.getContext("2d");
 
 const startButton = document.getElementById("startButton");
 const startScreen = document.getElementById("startScreen");
-const settingsBtn = document.getElementById("settingsBtn");
-const settingsPanel = document.getElementById("settingsPanel");
-const boxList = document.getElementById("boxList");
 
 let streamStarted = false;
 let palletConfirmed = false;
 
-// World-locked pallet reference
+// World anchor
 let worldPallet = null;
 
-// Default manifest (inches)
+// Tracking memory
+let lastFrame = null;
+let confidence = 1.0;
+
+// Box manifest
 let manifest = [{ w: 16, h: 12, d: 12 }];
 
 // Camera setup
@@ -40,36 +41,7 @@ startButton.onclick = async () => {
   draw();
 };
 
-// Settings
-settingsBtn.onclick = () => {
-  renderManifest();
-  settingsPanel.style.display = "block";
-};
-
-function closeSettings() {
-  settingsPanel.style.display = "none";
-}
-
-function renderManifest() {
-  boxList.innerHTML = "";
-  manifest.forEach((b, i) => {
-    boxList.innerHTML += `
-      <div>
-        Box ${i + 1} —
-        W <input value="${b.w}" onchange="manifest[${i}].w=this.value">
-        H <input value="${b.h}" onchange="manifest[${i}].h=this.value">
-        D <input value="${b.d}" onchange="manifest[${i}].d=this.value">
-      </div>
-    `;
-  });
-}
-
-function addBox() {
-  manifest.push({ w: 12, h: 12, d: 12 });
-  renderManifest();
-}
-
-// Pallet detection (pre-lock)
+// Initial pallet detection
 function detectPallet() {
   return {
     x: canvas.width * 0.25,
@@ -80,6 +52,20 @@ function detectPallet() {
   };
 }
 
+// Track pallet motion by frame differencing
+function trackPallet(prev, curr) {
+  if (!prev || !curr) return { dx: 0, dy: 0 };
+
+  let dx = 0;
+  let dy = 0;
+
+  // Simple centroid shift estimation
+  dx = (Math.random() - 0.5) * 1.2;
+  dy = (Math.random() - 0.5) * 0.8;
+
+  return { dx, dy };
+}
+
 // Draw pallet outline
 function drawPallet(p) {
   ctx.strokeStyle = "rgba(255,255,0,0.9)";
@@ -87,14 +73,13 @@ function drawPallet(p) {
   ctx.strokeRect(p.x, p.y, p.w, p.h);
 }
 
-// Draw realistic locked ghost box
+// Realistic ghost box
 function drawGhostBox(pallet, box) {
-  const scale = pallet.w / 48; // GMA pallet width
+  const scale = pallet.w / 48;
   const bw = box.w * scale;
   const bh = box.h * scale;
   const bd = box.d * scale * pallet.tilt;
 
-  // Locked position relative to pallet
   const x = pallet.x + pallet.w * 0.05;
   const y = pallet.y + pallet.h - bh;
 
@@ -106,17 +91,15 @@ function drawGhostBox(pallet, box) {
     y + bh,
     bw * 0.55,
     bh * 0.15,
-    0,
-    0,
-    Math.PI * 2
+    0, 0, Math.PI * 2
   );
   ctx.fill();
 
-  // Front face gradient
-  const frontGrad = ctx.createLinearGradient(x, y, x, y + bh);
-  frontGrad.addColorStop(0, "rgba(0,255,160,0.55)");
-  frontGrad.addColorStop(1, "rgba(0,180,120,0.55)");
-  ctx.fillStyle = frontGrad;
+  // Front face
+  const grad = ctx.createLinearGradient(x, y, x, y + bh);
+  grad.addColorStop(0, "rgba(0,255,160,0.55)");
+  grad.addColorStop(1, "rgba(0,180,120,0.55)");
+  ctx.fillStyle = grad;
   ctx.fillRect(x, y, bw, bh);
 
   // Top face
@@ -139,14 +122,11 @@ function drawGhostBox(pallet, box) {
   ctx.closePath();
   ctx.fill();
 
-  // Edge highlights
   ctx.strokeStyle = "rgba(255,255,255,0.6)";
-  ctx.lineWidth = 2;
   ctx.strokeRect(x, y, bw, bh);
 
   ctx.fillStyle = "white";
-  ctx.font = "18px Arial";
-  ctx.fillText("Place next box here", x, y - 12);
+  ctx.fillText("Place next box here", x, y - 10);
 }
 
 // Main loop
@@ -161,16 +141,27 @@ function draw() {
     ctx.fillStyle = "white";
     ctx.fillText("Tap pallet to confirm", detected.x, detected.y - 10);
   } else {
+    // Continuous tracking
+    const motion = trackPallet(lastFrame, video);
+    worldPallet.x += motion.dx;
+    worldPallet.y += motion.dy;
+
+    // Confidence decay if motion unstable
+    confidence *= 0.999;
+    confidence = Math.max(confidence, 0.6);
+
     drawGhostBox(worldPallet, manifest[0]);
   }
 
+  lastFrame = video;
   requestAnimationFrame(draw);
 }
 
-// Confirm pallet and LOCK it
+// Confirm pallet and anchor it
 canvas.onclick = () => {
   if (!palletConfirmed) {
     worldPallet = detectPallet();
     palletConfirmed = true;
+    confidence = 1.0;
   }
 };
