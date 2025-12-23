@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>GhostStack AR</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
   <style>
     body {
@@ -64,13 +64,9 @@
       overflow-y: auto;
     }
 
-    input {
-      width: 80px;
-      margin: 4px;
-    }
-
-    button {
-      margin-top: 10px;
+    select, input {
+      margin: 6px;
+      width: 120px;
     }
   </style>
 </head>
@@ -79,19 +75,32 @@
 
 <div id="startScreen">
   <h1>GhostStack AR</h1>
-  <p>Tap to start</p>
   <button id="startButton">Start Camera</button>
 </div>
 
 <button id="settingsBtn">⚙️</button>
 
 <div id="settingsPanel">
-  <h2>Pallet Stack Manifest</h2>
-  <div id="boxList"></div>
+  <h2>Pallet Settings</h2>
 
-  <button onclick="addBox()">➕ Add Custom Box</button>
+  <label>Pallet Standard:</label><br>
+  <select id="palletSelect">
+    <option value="GMA">GMA (US)</option>
+    <option value="EURO">Euro</option>
+    <option value="JIS">JIS</option>
+    <option value="AU">Australian</option>
+    <option value="CUSTOM">Custom</option>
+  </select>
+
+  <div>
+    Width (in): <input id="palletW" type="number">
+    Depth (in): <input id="palletD" type="number">
+  </div>
+
+  <br>
+  <button onclick="applyPalletSettings()">Apply</button>
   <br><br>
-  <button onclick="closeSettings()">Close Settings</button>
+  <button onclick="closeSettings()">Close</button>
 </div>
 
 <video id="video" autoplay playsinline></video>
