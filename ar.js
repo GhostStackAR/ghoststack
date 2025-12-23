@@ -4,25 +4,34 @@ const ctx = canvas.getContext("2d");
 
 const startButton = document.getElementById("startButton");
 const startScreen = document.getElementById("startScreen");
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsPanel = document.getElementById("settingsPanel");
+
+const palletSelect = document.getElementById("palletSelect");
+const palletWInput = document.getElementById("palletW");
+const palletDInput = document.getElementById("palletD");
 
 let streamStarted = false;
 let palletConfirmed = false;
 
-// World anchor
-let worldPallet = null;
+// Pallet standards (inches)
+const PALLETS = {
+  GMA: { w: 48, d: 40 },
+  EURO: { w: 47.2, d: 31.5 },
+  JIS: { w: 43.3, d: 43.3 },
+  AU: { w: 45.9, d: 45.9 }
+};
 
-// Tracking memory
-let lastFrame = null;
-let confidence = 1.0;
+// Active pallet reference
+let palletRef = { ...PALLETS.GMA };
+
+// World-locked pallet
+let worldPallet = null;
 
 // Box manifest
 let manifest = [{ w: 16, h: 12, d: 12 }];
 
-// Camera setup
-video.style.width = "100vw";
-video.style.height = "100vh";
-video.style.objectFit = "cover";
-
+// Resize
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -30,7 +39,7 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Start camera
+// Camera
 startButton.onclick = async () => {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
@@ -41,41 +50,54 @@ startButton.onclick = async () => {
   draw();
 };
 
-// Initial pallet detection
+// Settings
+settingsBtn.onclick = () => {
+  palletWInput.value = palletRef.w;
+  palletDInput.value = palletRef.d;
+  settingsPanel.style.display = "block";
+};
+
+function closeSettings() {
+  settingsPanel.style.display = "none";
+}
+
+function applyPalletSettings() {
+  const type = palletSelect.value;
+
+  if (type === "CUSTOM") {
+    palletRef.w = parseFloat(palletWInput.value);
+    palletRef.d = parseFloat(palletDInput.value);
+  } else {
+    palletRef = { ...PALLETS[type] };
+  }
+
+  palletConfirmed = false;
+  worldPallet = null;
+  closeSettings();
+}
+
+// Initial pallet detection (screen-space)
 function detectPallet() {
   return {
     x: canvas.width * 0.25,
     y: canvas.height * 0.62,
     w: canvas.width * 0.5,
-    h: canvas.height * 0.18,
+    h: canvas.height * (palletRef.d / palletRef.w) * 0.5,
     tilt: 0.55
   };
 }
 
-// Track pallet motion by frame differencing
-function trackPallet(prev, curr) {
-  if (!prev || !curr) return { dx: 0, dy: 0 };
-
-  let dx = 0;
-  let dy = 0;
-
-  // Simple centroid shift estimation
-  dx = (Math.random() - 0.5) * 1.2;
-  dy = (Math.random() - 0.5) * 0.8;
-
-  return { dx, dy };
-}
-
-// Draw pallet outline
+// Draw pallet
 function drawPallet(p) {
   ctx.strokeStyle = "rgba(255,255,0,0.9)";
   ctx.lineWidth = 4;
   ctx.strokeRect(p.x, p.y, p.w, p.h);
 }
 
-// Realistic ghost box
+// Draw ghost box (scaled by pallet standard)
 function drawGhostBox(pallet, box) {
-  const scale = pallet.w / 48;
+  const scale = pallet.w / palletRef.w;
+
   const bw = box.w * scale;
   const bh = box.h * scale;
   const bd = box.d * scale * pallet.tilt;
@@ -83,16 +105,10 @@ function drawGhostBox(pallet, box) {
   const x = pallet.x + pallet.w * 0.05;
   const y = pallet.y + pallet.h - bh;
 
-  // Contact shadow
+  // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
-  ctx.ellipse(
-    x + bw / 2,
-    y + bh,
-    bw * 0.55,
-    bh * 0.15,
-    0, 0, Math.PI * 2
-  );
+  ctx.ellipse(x + bw / 2, y + bh, bw * 0.55, bh * 0.15, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Front face
@@ -102,7 +118,7 @@ function drawGhostBox(pallet, box) {
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, bw, bh);
 
-  // Top face
+  // Top
   ctx.fillStyle = "rgba(200,255,230,0.35)";
   ctx.beginPath();
   ctx.moveTo(x, y);
@@ -112,7 +128,7 @@ function drawGhostBox(pallet, box) {
   ctx.closePath();
   ctx.fill();
 
-  // Side face
+  // Side
   ctx.fillStyle = "rgba(0,200,140,0.35)";
   ctx.beginPath();
   ctx.moveTo(x + bw, y);
@@ -124,9 +140,6 @@ function drawGhostBox(pallet, box) {
 
   ctx.strokeStyle = "rgba(255,255,255,0.6)";
   ctx.strokeRect(x, y, bw, bh);
-
-  ctx.fillStyle = "white";
-  ctx.fillText("Place next box here", x, y - 10);
 }
 
 // Main loop
@@ -136,32 +149,21 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (!palletConfirmed) {
-    const detected = detectPallet();
-    drawPallet(detected);
+    const p = detectPallet();
+    drawPallet(p);
     ctx.fillStyle = "white";
-    ctx.fillText("Tap pallet to confirm", detected.x, detected.y - 10);
+    ctx.fillText("Tap pallet to confirm", p.x, p.y - 10);
   } else {
-    // Continuous tracking
-    const motion = trackPallet(lastFrame, video);
-    worldPallet.x += motion.dx;
-    worldPallet.y += motion.dy;
-
-    // Confidence decay if motion unstable
-    confidence *= 0.999;
-    confidence = Math.max(confidence, 0.6);
-
     drawGhostBox(worldPallet, manifest[0]);
   }
 
-  lastFrame = video;
   requestAnimationFrame(draw);
 }
 
-// Confirm pallet and anchor it
+// Confirm pallet
 canvas.onclick = () => {
   if (!palletConfirmed) {
     worldPallet = detectPallet();
     palletConfirmed = true;
-    confidence = 1.0;
   }
 };
