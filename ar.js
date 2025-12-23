@@ -4,34 +4,32 @@ const ctx = canvas.getContext("2d");
 
 const startButton = document.getElementById("startButton");
 const startScreen = document.getElementById("startScreen");
-
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsPanel = document.getElementById("settingsPanel");
 const boxList = document.getElementById("boxList");
 
 let streamStarted = false;
 let palletConfirmed = false;
-let detectedPallet = null;
+let pallet = null;
 
-// Default box manifest (inches)
+// Default manifest (inches)
 let manifest = [
-  { w: 16, h: 12, d: 12 },
-  { w: 20, h: 14, d: 10 }
+  { w: 16, h: 12, d: 12 }
 ];
 
+// Camera setup
 video.style.width = "100vw";
 video.style.height = "100vh";
 video.style.objectFit = "cover";
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
-window.addEventListener("resize", () => {
+function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-});
+}
+window.addEventListener("resize", resize);
+resize();
 
-// Camera start
+// Start camera
 startButton.onclick = async () => {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
@@ -42,7 +40,7 @@ startButton.onclick = async () => {
   draw();
 };
 
-// Settings UI
+// Settings
 settingsBtn.onclick = () => {
   renderManifest();
   settingsPanel.style.display = "block";
@@ -54,13 +52,13 @@ function closeSettings() {
 
 function renderManifest() {
   boxList.innerHTML = "";
-  manifest.forEach((box, i) => {
+  manifest.forEach((b, i) => {
     boxList.innerHTML += `
       <div>
         Box ${i + 1} —
-        W <input value="${box.w}" onchange="manifest[${i}].w=this.value">
-        H <input value="${box.h}" onchange="manifest[${i}].h=this.value">
-        D <input value="${box.d}" onchange="manifest[${i}].d=this.value">
+        W <input value="${b.w}" onchange="manifest[${i}].w=this.value">
+        H <input value="${b.h}" onchange="manifest[${i}].h=this.value">
+        D <input value="${b.d}" onchange="manifest[${i}].d=this.value">
       </div>
     `;
   });
@@ -71,46 +69,84 @@ function addBox() {
   renderManifest();
 }
 
-// Simulated pallet (edge detection placeholder)
-function simulatePallet() {
+// Simulated pallet detection (placeholder)
+function detectPallet() {
   return {
     x: canvas.width * 0.25,
-    y: canvas.height * 0.6,
+    y: canvas.height * 0.62,
     w: canvas.width * 0.5,
-    h: canvas.height * 0.2
+    h: canvas.height * 0.18,
+    tilt: 0.55 // perspective factor
   };
 }
 
-// Draw 3D box
-function draw3DBox(x, y, w, h, d) {
-  const depth = d * 0.6;
+// Draw pallet
+function drawPallet(p) {
+  ctx.strokeStyle = "rgba(255,255,0,0.9)";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(p.x, p.y, p.w, p.h);
+}
 
-  // Front
-  ctx.fillStyle = "rgba(0,255,136,0.45)";
-  ctx.fillRect(x, y, w, h);
+// Realistic 3D ghost box
+function drawGhostBox(pallet, box) {
+  const scale = pallet.w / 48; // GMA pallet width
+  const bw = box.w * scale;
+  const bh = box.h * scale;
+  const bd = box.d * scale * pallet.tilt;
 
-  // Top
-  ctx.fillStyle = "rgba(0,255,136,0.3)";
+  const x = pallet.x + pallet.w * 0.05;
+  const y = pallet.y + pallet.h - bh;
+
+  // Contact shadow
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath();
+  ctx.ellipse(
+    x + bw / 2,
+    y + bh,
+    bw * 0.55,
+    bh * 0.15,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  // Front face gradient
+  const frontGrad = ctx.createLinearGradient(x, y, x, y + bh);
+  frontGrad.addColorStop(0, "rgba(0,255,160,0.55)");
+  frontGrad.addColorStop(1, "rgba(0,180,120,0.55)");
+  ctx.fillStyle = frontGrad;
+  ctx.fillRect(x, y, bw, bh);
+
+  // Top face
+  ctx.fillStyle = "rgba(180,255,220,0.35)";
   ctx.beginPath();
   ctx.moveTo(x, y);
-  ctx.lineTo(x + depth, y - depth);
-  ctx.lineTo(x + w + depth, y - depth);
-  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + bd, y - bd);
+  ctx.lineTo(x + bw + bd, y - bd);
+  ctx.lineTo(x + bw, y);
   ctx.closePath();
   ctx.fill();
 
-  // Side
-  ctx.fillStyle = "rgba(0,255,136,0.25)";
+  // Side face
+  ctx.fillStyle = "rgba(0,200,140,0.35)";
   ctx.beginPath();
-  ctx.moveTo(x + w, y);
-  ctx.lineTo(x + w + depth, y - depth);
-  ctx.lineTo(x + w + depth, y + h - depth);
-  ctx.lineTo(x + w, y + h);
+  ctx.moveTo(x + bw, y);
+  ctx.lineTo(x + bw + bd, y - bd);
+  ctx.lineTo(x + bw + bd, y + bh - bd);
+  ctx.lineTo(x + bw, y + bh);
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = "#00ff88";
-  ctx.strokeRect(x, y, w, h);
+  // Edge highlights
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, bw, bh);
+
+  // Instruction
+  ctx.fillStyle = "white";
+  ctx.font = "18px Arial";
+  ctx.fillText("Place next box here", x, y - 12);
 }
 
 // Main loop
@@ -120,33 +156,18 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (!palletConfirmed) {
-    detectedPallet = simulatePallet();
-    ctx.strokeStyle = "yellow";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(detectedPallet.x, detectedPallet.y, detectedPallet.w, detectedPallet.h);
-
+    pallet = detectPallet();
+    drawPallet(pallet);
     ctx.fillStyle = "white";
-    ctx.fillText("Tap pallet to confirm", detectedPallet.x, detectedPallet.y - 10);
+    ctx.fillText("Tap pallet to confirm", pallet.x, pallet.y - 10);
   } else {
-    const p = detectedPallet;
-    const box = manifest[0];
-
-    const scale = p.w / 48; // GMA pallet width reference
-    const bw = box.w * scale;
-    const bh = box.h * scale;
-    const bd = box.d * scale;
-
-    const bx = p.x + 10;
-    const by = p.y + p.h - bh;
-
-    draw3DBox(bx, by, bw, bh, bd);
-    ctx.fillStyle = "white";
-    ctx.fillText("Place next box here", bx, by - 10);
+    drawGhostBox(pallet, manifest[0]);
   }
 
   requestAnimationFrame(draw);
 }
 
+// Confirm pallet
 canvas.onclick = () => {
   if (!palletConfirmed) palletConfirmed = true;
 };
