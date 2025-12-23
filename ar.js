@@ -7,6 +7,9 @@ const startScreen = document.getElementById("startScreen");
 let streamStarted = false;
 let palletConfirmed = false;
 
+// Device orientation
+let pitch = 0;
+
 // Fullscreen video
 video.style.position = "fixed";
 video.style.top = "0";
@@ -29,9 +32,36 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+// Request motion permission (iOS requires this)
+async function requestMotionPermission() {
+  if (
+    typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  ) {
+    try {
+      const response = await DeviceOrientationEvent.requestPermission();
+      if (response !== "granted") {
+        alert("Motion permission denied.");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
+// Listen for tilt
+window.addEventListener("deviceorientation", (event) => {
+  // beta = front/back tilt
+  if (event.beta !== null) {
+    pitch = event.beta;
+  }
+});
+
 // Start camera
 startButton.addEventListener("click", async () => {
   if (streamStarted) return;
+
+  await requestMotionPermission();
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -63,40 +93,59 @@ function draw() {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const floorY = canvas.height * 0.75;
+  // Normalize pitch (-90 to 90 → 0 to 1)
+  const tiltFactor = Math.min(Math.max((pitch + 90) / 180, 0.15), 0.85);
+
+  const floorY = canvas.height * 0.78;
 
   const palletWidth = canvas.width * 0.55;
-  const palletDepth = canvas.height * 0.18;
+  const baseDepth = canvas.height * 0.25;
+
+  // Perspective-adjusted depth
+  const palletDepth = baseDepth * tiltFactor;
 
   const palletX = (canvas.width - palletWidth) / 2;
   const palletY = floorY - palletDepth;
 
-  // --- PALLET GUIDANCE ---
+  // Draw pallet trapezoid (perspective)
   ctx.strokeStyle = "yellow";
   ctx.lineWidth = 4;
-  ctx.strokeRect(palletX, palletY, palletWidth, palletDepth);
+
+  const nearShrink = 0.9;
+  const farShrink = 0.6;
+
+  const nearWidth = palletWidth * nearShrink;
+  const farWidth = palletWidth * farShrink;
+
+  const nearX = (canvas.width - nearWidth) / 2;
+  const farX = (canvas.width - farWidth) / 2;
+
+  ctx.beginPath();
+  ctx.moveTo(nearX, palletY + palletDepth);
+  ctx.lineTo(nearX + nearWidth, palletY + palletDepth);
+  ctx.lineTo(farX + farWidth, palletY);
+  ctx.lineTo(farX, palletY);
+  ctx.closePath();
+  ctx.stroke();
 
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
 
   if (!palletConfirmed) {
-    // STEP 1: CONFIRM PALLET
     ctx.fillText(
       "Align pallet inside frame, then TAP to confirm",
-      palletX,
+      nearX,
       palletY - 15
     );
   } else {
-    // STEP 2: STACKING MODE
-
-    // Ghost box placement
-    const boxWidth = palletWidth * 0.3;
+    // Ghost box (locked to pallet plane)
+    const boxWidth = nearWidth * 0.3;
     const boxHeight = palletDepth * 0.6;
 
-    const boxX = palletX + palletWidth * 0.05;
+    const boxX = nearX + nearWidth * 0.05;
     const boxY = palletY + palletDepth - boxHeight;
 
-    ctx.fillStyle = "rgba(0, 255, 136, 0.4)";
+    ctx.fillStyle = "rgba(0, 255, 136, 0.45)";
     ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
 
     ctx.strokeStyle = "#00ff88";
