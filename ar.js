@@ -5,8 +5,9 @@ const startButton = document.getElementById("startButton");
 const startScreen = document.getElementById("startScreen");
 
 let streamStarted = false;
+let palletConfirmed = false;
 
-// Force full-screen video
+// Fullscreen video
 video.style.position = "fixed";
 video.style.top = "0";
 video.style.left = "0";
@@ -28,7 +29,7 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Start camera after user gesture
+// Start camera
 startButton.addEventListener("click", async () => {
   if (streamStarted) return;
 
@@ -49,45 +50,62 @@ startButton.addEventListener("click", async () => {
   }
 });
 
-// MAIN DRAW LOOP
+// Tap to confirm pallet
+canvas.addEventListener("click", () => {
+  if (!palletConfirmed) {
+    palletConfirmed = true;
+  }
+});
+
+// MAIN LOOP
 function draw() {
   if (!streamStarted) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Simulated floor line (camera-relative)
   const floorY = canvas.height * 0.75;
 
-  // Pallet dimensions (screen-relative)
   const palletWidth = canvas.width * 0.55;
   const palletDepth = canvas.height * 0.18;
 
   const palletX = (canvas.width - palletWidth) / 2;
   const palletY = floorY - palletDepth;
 
-  // Draw pallet outline
+  // --- PALLET GUIDANCE ---
   ctx.strokeStyle = "yellow";
   ctx.lineWidth = 4;
   ctx.strokeRect(palletX, palletY, palletWidth, palletDepth);
 
-  // Draw ghost box snapped to pallet corner
-  const boxWidth = palletWidth * 0.3;
-  const boxHeight = palletDepth * 0.6;
-
-  const boxX = palletX + palletWidth * 0.05;
-  const boxY = palletY + palletDepth - boxHeight;
-
-  ctx.fillStyle = "rgba(0, 255, 136, 0.4)";
-  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-
-  ctx.strokeStyle = "#00ff88";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-
-  // Instruction text
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
-  ctx.fillText("Place next box here", boxX, boxY - 10);
+
+  if (!palletConfirmed) {
+    // STEP 1: CONFIRM PALLET
+    ctx.fillText(
+      "Align pallet inside frame, then TAP to confirm",
+      palletX,
+      palletY - 15
+    );
+  } else {
+    // STEP 2: STACKING MODE
+
+    // Ghost box placement
+    const boxWidth = palletWidth * 0.3;
+    const boxHeight = palletDepth * 0.6;
+
+    const boxX = palletX + palletWidth * 0.05;
+    const boxY = palletY + palletDepth - boxHeight;
+
+    ctx.fillStyle = "rgba(0, 255, 136, 0.4)";
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+    ctx.strokeStyle = "#00ff88";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+    ctx.fillStyle = "white";
+    ctx.fillText("Place next box here", boxX, boxY - 10);
+  }
 
   requestAnimationFrame(draw);
 }
