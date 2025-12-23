@@ -22,10 +22,7 @@ const PALLETS = {
   AU: { w: 45.9, d: 45.9 }
 };
 
-// Active pallet reference
 let palletRef = { ...PALLETS.GMA };
-
-// World-locked pallet
 let worldPallet = null;
 
 // Box manifest
@@ -63,20 +60,16 @@ function closeSettings() {
 
 function applyPalletSettings() {
   const type = palletSelect.value;
-
-  if (type === "CUSTOM") {
-    palletRef.w = parseFloat(palletWInput.value);
-    palletRef.d = parseFloat(palletDInput.value);
-  } else {
-    palletRef = { ...PALLETS[type] };
-  }
+  palletRef = type === "CUSTOM"
+    ? { w: +palletWInput.value, d: +palletDInput.value }
+    : { ...PALLETS[type] };
 
   palletConfirmed = false;
   worldPallet = null;
   closeSettings();
 }
 
-// Initial pallet detection (screen-space)
+// Detect pallet (screen-space)
 function detectPallet() {
   return {
     x: canvas.width * 0.25,
@@ -87,6 +80,31 @@ function detectPallet() {
   };
 }
 
+// Estimate light direction from camera image
+function estimateLightDirection() {
+  ctx.drawImage(video, 0, 0, 64, 64);
+  const data = ctx.getImageData(0, 0, 64, 64).data;
+
+  let left = 0, right = 0, top = 0, bottom = 0;
+
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const i = (y * 64 + x) * 4;
+      const lum = (data[i] + data[i+1] + data[i+2]) / 3;
+
+      if (x < 32) left += lum;
+      else right += lum;
+      if (y < 32) top += lum;
+      else bottom += lum;
+    }
+  }
+
+  return {
+    x: right - left,
+    y: top - bottom
+  };
+}
+
 // Draw pallet
 function drawPallet(p) {
   ctx.strokeStyle = "rgba(255,255,0,0.9)";
@@ -94,16 +112,24 @@ function drawPallet(p) {
   ctx.strokeRect(p.x, p.y, p.w, p.h);
 }
 
-// Draw ghost box (scaled by pallet standard)
-function drawGhostBox(pallet, box) {
+// Draw realistic ghost box with dynamic lighting
+function drawGhostBox(pallet, box, light) {
   const scale = pallet.w / palletRef.w;
-
   const bw = box.w * scale;
   const bh = box.h * scale;
   const bd = box.d * scale * pallet.tilt;
 
   const x = pallet.x + pallet.w * 0.05;
   const y = pallet.y + pallet.h - bh;
+
+  // Normalize light
+  const mag = Math.hypot(light.x, light.y) || 1;
+  const lx = light.x / mag;
+  const ly = light.y / mag;
+
+  const frontLight = Math.max(0.4, 0.7 + ly * 0.3);
+  const topLight = Math.max(0.35, 0.6 - ly * 0.4);
+  const sideLight = Math.max(0.3, 0.5 + lx * 0.3);
 
   // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -112,14 +138,11 @@ function drawGhostBox(pallet, box) {
   ctx.fill();
 
   // Front face
-  const grad = ctx.createLinearGradient(x, y, x, y + bh);
-  grad.addColorStop(0, "rgba(0,255,160,0.55)");
-  grad.addColorStop(1, "rgba(0,180,120,0.55)");
-  ctx.fillStyle = grad;
+  ctx.fillStyle = `rgba(0,200,150,${frontLight})`;
   ctx.fillRect(x, y, bw, bh);
 
-  // Top
-  ctx.fillStyle = "rgba(200,255,230,0.35)";
+  // Top face
+  ctx.fillStyle = `rgba(180,255,220,${topLight})`;
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(x + bd, y - bd);
@@ -128,8 +151,8 @@ function drawGhostBox(pallet, box) {
   ctx.closePath();
   ctx.fill();
 
-  // Side
-  ctx.fillStyle = "rgba(0,200,140,0.35)";
+  // Side face
+  ctx.fillStyle = `rgba(0,180,130,${sideLight})`;
   ctx.beginPath();
   ctx.moveTo(x + bw, y);
   ctx.lineTo(x + bw + bd, y - bd);
@@ -147,6 +170,7 @@ function draw() {
   if (!streamStarted) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const light = estimateLightDirection();
 
   if (!palletConfirmed) {
     const p = detectPallet();
@@ -154,7 +178,7 @@ function draw() {
     ctx.fillStyle = "white";
     ctx.fillText("Tap pallet to confirm", p.x, p.y - 10);
   } else {
-    drawGhostBox(worldPallet, manifest[0]);
+    drawGhostBox(worldPallet, manifest[0], light);
   }
 
   requestAnimationFrame(draw);
