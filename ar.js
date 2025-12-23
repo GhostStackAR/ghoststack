@@ -10,12 +10,12 @@ const boxList = document.getElementById("boxList");
 
 let streamStarted = false;
 let palletConfirmed = false;
-let pallet = null;
+
+// World-locked pallet reference
+let worldPallet = null;
 
 // Default manifest (inches)
-let manifest = [
-  { w: 16, h: 12, d: 12 }
-];
+let manifest = [{ w: 16, h: 12, d: 12 }];
 
 // Camera setup
 video.style.width = "100vw";
@@ -69,31 +69,32 @@ function addBox() {
   renderManifest();
 }
 
-// Simulated pallet detection (placeholder)
+// Pallet detection (pre-lock)
 function detectPallet() {
   return {
     x: canvas.width * 0.25,
     y: canvas.height * 0.62,
     w: canvas.width * 0.5,
     h: canvas.height * 0.18,
-    tilt: 0.55 // perspective factor
+    tilt: 0.55
   };
 }
 
-// Draw pallet
+// Draw pallet outline
 function drawPallet(p) {
   ctx.strokeStyle = "rgba(255,255,0,0.9)";
   ctx.lineWidth = 4;
   ctx.strokeRect(p.x, p.y, p.w, p.h);
 }
 
-// Realistic 3D ghost box
+// Draw realistic locked ghost box
 function drawGhostBox(pallet, box) {
   const scale = pallet.w / 48; // GMA pallet width
   const bw = box.w * scale;
   const bh = box.h * scale;
   const bd = box.d * scale * pallet.tilt;
 
+  // Locked position relative to pallet
   const x = pallet.x + pallet.w * 0.05;
   const y = pallet.y + pallet.h - bh;
 
@@ -119,7 +120,7 @@ function drawGhostBox(pallet, box) {
   ctx.fillRect(x, y, bw, bh);
 
   // Top face
-  ctx.fillStyle = "rgba(180,255,220,0.35)";
+  ctx.fillStyle = "rgba(200,255,230,0.35)";
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(x + bd, y - bd);
@@ -143,7 +144,6 @@ function drawGhostBox(pallet, box) {
   ctx.lineWidth = 2;
   ctx.strokeRect(x, y, bw, bh);
 
-  // Instruction
   ctx.fillStyle = "white";
   ctx.font = "18px Arial";
   ctx.fillText("Place next box here", x, y - 12);
@@ -156,18 +156,21 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   if (!palletConfirmed) {
-    pallet = detectPallet();
-    drawPallet(pallet);
+    const detected = detectPallet();
+    drawPallet(detected);
     ctx.fillStyle = "white";
-    ctx.fillText("Tap pallet to confirm", pallet.x, pallet.y - 10);
+    ctx.fillText("Tap pallet to confirm", detected.x, detected.y - 10);
   } else {
-    drawGhostBox(pallet, manifest[0]);
+    drawGhostBox(worldPallet, manifest[0]);
   }
 
   requestAnimationFrame(draw);
 }
 
-// Confirm pallet
+// Confirm pallet and LOCK it
 canvas.onclick = () => {
-  if (!palletConfirmed) palletConfirmed = true;
+  if (!palletConfirmed) {
+    worldPallet = detectPallet();
+    palletConfirmed = true;
+  }
 };
