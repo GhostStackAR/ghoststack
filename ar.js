@@ -2,15 +2,6 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-const startButton = document.getElementById("startButton");
-const startScreen = document.getElementById("startScreen");
-const settingsBtn = document.getElementById("settingsBtn");
-const settingsPanel = document.getElementById("settingsPanel");
-
-const palletSelect = document.getElementById("palletSelect");
-const palletWInput = document.getElementById("palletW");
-const palletDInput = document.getElementById("palletD");
-
 let streamStarted = false;
 let palletConfirmed = false;
 
@@ -23,10 +14,19 @@ const PALLETS = {
 };
 
 let palletRef = { ...PALLETS.GMA };
-let worldPallet = null;
 
-// Box manifest
-let manifest = [{ w: 16, h: 12, d: 12 }];
+// Stack state
+let stack = [];
+let cumulativeDrift = { x: 0, y: 0 };
+
+// Manifest (future boxes)
+let manifest = [
+  { w: 16, h: 12, d: 12 },
+  { w: 16, h: 12, d: 12 },
+  { w: 16, h: 12, d: 12 }
+];
+
+let worldPallet = null;
 
 // Resize
 function resize() {
@@ -36,133 +36,133 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Camera
-startButton.onclick = async () => {
+// Camera start
+async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
   });
   video.srcObject = stream;
   streamStarted = true;
-  startScreen.style.display = "none";
   draw();
-};
-
-// Settings
-settingsBtn.onclick = () => {
-  palletWInput.value = palletRef.w;
-  palletDInput.value = palletRef.d;
-  settingsPanel.style.display = "block";
-};
-
-function closeSettings() {
-  settingsPanel.style.display = "none";
 }
 
-function applyPalletSettings() {
-  const type = palletSelect.value;
-  palletRef = type === "CUSTOM"
-    ? { w: +palletWInput.value, d: +palletDInput.value }
-    : { ...PALLETS[type] };
-
-  palletConfirmed = false;
-  worldPallet = null;
-  closeSettings();
-}
-
-// Detect pallet (screen-space)
+// Pallet detection (screen-space)
 function detectPallet() {
   return {
     x: canvas.width * 0.25,
-    y: canvas.height * 0.62,
+    y: canvas.height * 0.6,
     w: canvas.width * 0.5,
-    h: canvas.height * (palletRef.d / palletRef.w) * 0.5,
+    h: canvas.width * 0.35,
     tilt: 0.55
   };
 }
 
-// Estimate light direction from camera image
+// Estimate lighting
 function estimateLightDirection() {
   ctx.drawImage(video, 0, 0, 64, 64);
-  const data = ctx.getImageData(0, 0, 64, 64).data;
+  const d = ctx.getImageData(0, 0, 64, 64).data;
 
-  let left = 0, right = 0, top = 0, bottom = 0;
+  let lx = 0, ly = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = (d[i] + d[i+1] + d[i+2]) / 3;
+    const x = (i / 4) % 64;
+    const y = Math.floor(i / 4 / 64);
+    lx += (x - 32) * lum;
+    ly += (32 - y) * lum;
+  }
+  return { x: lx, y: ly };
+}
 
-  for (let y = 0; y < 64; y++) {
-    for (let x = 0; x < 64; x++) {
-      const i = (y * 64 + x) * 4;
-      const lum = (data[i] + data[i+1] + data[i+2]) / 3;
+// Compute stability correction
+function computeStabilityOffset(box, pallet) {
+  let offsetX = 0;
 
-      if (x < 32) left += lum;
-      else right += lum;
-      if (y < 32) top += lum;
-      else bottom += lum;
-    }
+  const palletCenter = pallet.w / 2;
+  let totalMass = 0;
+  let weightedX = 0;
+
+  stack.forEach(b => {
+    const mass = b.w * b.d * b.h;
+    weightedX += (b.x + b.w / 2) * mass;
+    totalMass += mass;
+  });
+
+  if (totalMass > 0) {
+    const comX = weightedX / totalMass;
+    const drift = comX - palletCenter;
+
+    // Compensate lean quietly
+    offsetX -= drift * 0.4;
   }
 
-  return {
-    x: right - left,
-    y: top - bottom
-  };
+  // Clamp correction
+  const maxShift = pallet.w * 0.15;
+  offsetX = Math.max(-maxShift, Math.min(maxShift, offsetX));
+
+  return offsetX;
 }
 
 // Draw pallet
 function drawPallet(p) {
-  ctx.strokeStyle = "rgba(255,255,0,0.9)";
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(255,255,0,0.8)";
+  ctx.lineWidth = 3;
   ctx.strokeRect(p.x, p.y, p.w, p.h);
 }
 
-// Draw realistic ghost box with dynamic lighting
+// Draw ghost box with stability compensation
 function drawGhostBox(pallet, box, light) {
   const scale = pallet.w / palletRef.w;
   const bw = box.w * scale;
   const bh = box.h * scale;
   const bd = box.d * scale * pallet.tilt;
 
-  const x = pallet.x + pallet.w * 0.05;
-  const y = pallet.y + pallet.h - bh;
+  let baseX = pallet.x + pallet.w * 0.05;
+  let baseY = pallet.y + pallet.h - bh - stack.length * bh;
 
-  // Normalize light
+  const stabilityShift = computeStabilityOffset(box, pallet);
+  baseX += stabilityShift;
+
+  // Lighting normalize
   const mag = Math.hypot(light.x, light.y) || 1;
   const lx = light.x / mag;
   const ly = light.y / mag;
 
-  const frontLight = Math.max(0.4, 0.7 + ly * 0.3);
-  const topLight = Math.max(0.35, 0.6 - ly * 0.4);
-  const sideLight = Math.max(0.3, 0.5 + lx * 0.3);
+  const frontL = Math.max(0.4, 0.7 + ly * 0.3);
+  const sideL = Math.max(0.35, 0.5 + lx * 0.3);
+  const topL = Math.max(0.35, 0.6 - ly * 0.4);
 
   // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
-  ctx.ellipse(x + bw / 2, y + bh, bw * 0.55, bh * 0.15, 0, 0, Math.PI * 2);
+  ctx.ellipse(baseX + bw / 2, baseY + bh, bw * 0.55, bh * 0.15, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Front face
-  ctx.fillStyle = `rgba(0,200,150,${frontLight})`;
-  ctx.fillRect(x, y, bw, bh);
+  // Front
+  ctx.fillStyle = `rgba(0,200,150,${frontL})`;
+  ctx.fillRect(baseX, baseY, bw, bh);
 
-  // Top face
-  ctx.fillStyle = `rgba(180,255,220,${topLight})`;
+  // Top
+  ctx.fillStyle = `rgba(180,255,220,${topL})`;
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + bd, y - bd);
-  ctx.lineTo(x + bw + bd, y - bd);
-  ctx.lineTo(x + bw, y);
+  ctx.moveTo(baseX, baseY);
+  ctx.lineTo(baseX + bd, baseY - bd);
+  ctx.lineTo(baseX + bw + bd, baseY - bd);
+  ctx.lineTo(baseX + bw, baseY);
   ctx.closePath();
   ctx.fill();
 
-  // Side face
-  ctx.fillStyle = `rgba(0,180,130,${sideLight})`;
+  // Side
+  ctx.fillStyle = `rgba(0,180,130,${sideL})`;
   ctx.beginPath();
-  ctx.moveTo(x + bw, y);
-  ctx.lineTo(x + bw + bd, y - bd);
-  ctx.lineTo(x + bw + bd, y + bh - bd);
-  ctx.lineTo(x + bw, y + bh);
+  ctx.moveTo(baseX + bw, baseY);
+  ctx.lineTo(baseX + bw + bd, baseY - bd);
+  ctx.lineTo(baseX + bw + bd, baseY + bh - bd);
+  ctx.lineTo(baseX + bw, baseY + bh);
   ctx.closePath();
   ctx.fill();
 
   ctx.strokeStyle = "rgba(255,255,255,0.6)";
-  ctx.strokeRect(x, y, bw, bh);
+  ctx.strokeRect(baseX, baseY, bw, bh);
 }
 
 // Main loop
@@ -184,10 +184,21 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-// Confirm pallet
+// Click handling
 canvas.onclick = () => {
   if (!palletConfirmed) {
     worldPallet = detectPallet();
     palletConfirmed = true;
+  } else {
+    // User "places" box
+    const last = manifest.shift();
+    stack.push({
+      ...last,
+      x: worldPallet.w * 0.05,
+      y: stack.length
+    });
   }
 };
+
+// Auto-start camera
+startCamera();
