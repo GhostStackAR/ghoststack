@@ -1,106 +1,109 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>GhostStack AR</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body {
       margin: 0;
       overflow: hidden;
-      background: black;
       font-family: Arial, sans-serif;
-      color: white;
+      background: black;
     }
 
     video, canvas {
       position: fixed;
       top: 0;
       left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
     }
 
     #startScreen {
       position: fixed;
       inset: 0;
+      background: black;
       display: flex;
-      flex-direction: column;
       justify-content: center;
       align-items: center;
-      background: rgba(0,0,0,0.85);
       z-index: 10;
     }
 
-    #startButton {
-      padding: 16px 28px;
-      font-size: 18px;
-      border-radius: 10px;
-      border: none;
-      background: #00ff88;
-      cursor: pointer;
+    button {
+      padding: 12px 18px;
+      font-size: 16px;
     }
 
     #settingsBtn {
       position: fixed;
-      top: 10px;
-      right: 10px;
+      top: 12px;
+      right: 12px;
       z-index: 20;
-      font-size: 22px;
-      background: rgba(0,0,0,0.6);
-      border: 1px solid white;
-      color: white;
-      border-radius: 8px;
-      padding: 8px 12px;
-      cursor: pointer;
+      font-size: 20px;
     }
 
     #settingsPanel {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.95);
+      background: #111;
+      color: white;
       z-index: 30;
       display: none;
-      padding: 20px;
       overflow-y: auto;
+      padding: 20px;
     }
 
-    select, input {
-      margin: 6px;
-      width: 120px;
+    .section {
+      margin-bottom: 20px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 15px;
+    }
+
+    input, label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      padding: 6px;
+    }
+
+    .box-entry {
+      border: 1px solid #444;
+      padding: 10px;
+      margin-bottom: 10px;
     }
   </style>
 </head>
-
 <body>
 
 <div id="startScreen">
-  <h1>GhostStack AR</h1>
   <button id="startButton">Start Camera</button>
 </div>
 
 <button id="settingsBtn">⚙️</button>
 
 <div id="settingsPanel">
-  <h2>Pallet Settings</h2>
+  <button onclick="closeSettings()">⬅ Back</button>
 
-  <label>Pallet Standard:</label><br>
-  <select id="palletSelect">
-    <option value="GMA">GMA (US)</option>
-    <option value="EURO">Euro</option>
-    <option value="JIS">JIS</option>
-    <option value="AU">Australian</option>
-    <option value="CUSTOM">Custom</option>
-  </select>
+  <h2>Settings</h2>
 
-  <div>
-    Width (in): <input id="palletW" type="number">
-    Depth (in): <input id="palletD" type="number">
+  <div class="section">
+    <h3>Manifest</h3>
+
+    <button onclick="showAddManifest()">Add Manifest (Import)</button>
+    <p style="opacity:0.6;">(Import coming later)</p>
+
+    <h4>Manual Input</h4>
+
+    <div id="manualManifest"></div>
+
+    <button onclick="addBox()">➕ Add Box</button>
   </div>
-
-  <br>
-  <button onclick="applyPalletSettings()">Apply</button>
-  <br><br>
-  <button onclick="closeSettings()">Close</button>
 </div>
 
 <video id="video" autoplay playsinline></video>
