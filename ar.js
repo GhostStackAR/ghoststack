@@ -1,122 +1,19 @@
-// ===== CAMERA =====
+// ================== CAMERA ==================
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-let streamStarted = false;
-
-// ===== NAVIGATION =====
-const settingsPanel = document.getElementById("settingsPanel");
-const manifestPanel = document.getElementById("manifestPanel");
-
-document.getElementById("settingsBtn").onclick = () => {
-  settingsPanel.style.display = "block";
-};
-
-function showSettings() {
-  manifestPanel.style.display = "none";
-  settingsPanel.style.display = "block";
-}
-
-function showManualManifest() {
-  settingsPanel.style.display = "none";
-  manifestPanel.style.display = "block";
-  renderManifest();
-}
-
-function showAR() {
-  settingsPanel.style.display = "none";
-  manifestPanel.style.display = "none";
-}
-
-// ===== MANIFEST + UNITS =====
-let data = JSON.parse(localStorage.getItem("ghoststack_data")) || {
-  units: { dimension: "in", weight: "lb" },
-  manifest: []
-};
-
-function save() {
-  localStorage.setItem("ghoststack_data", JSON.stringify(data));
-}
-
-function updateUnits() {
-  data.units.dimension = document.getElementById("dimensionUnit").value;
-  data.units.weight = document.getElementById("weightUnit").value;
-  save();
-}
-
-function renderManifest() {
-  document.getElementById("dimensionUnit").value = data.units.dimension;
-  document.getElementById("weightUnit").value = data.units.weight;
-
-  const container = document.getElementById("manualManifest");
-  container.innerHTML = "";
-
-  data.manifest.forEach((box, i) => {
-    const div = document.createElement("div");
-    div.className = "box-entry";
-
-    div.innerHTML = `
-      <strong>Box ${i + 1}</strong>
-
-      <label>Width (${data.units.dimension})</label>
-      <input type="number" value="${box.w}" onchange="updateBox(${i}, 'w', this.value)">
-
-      <label>Height (${data.units.dimension})</label>
-      <input type="number" value="${box.h}" onchange="updateBox(${i}, 'h', this.value)">
-
-      <label>Depth (${data.units.dimension})</label>
-      <input type="number" value="${box.d}" onchange="updateBox(${i}, 'd', this.value)">
-
-      <label>Weight (${data.units.weight}, optional)</label>
-      <input type="number" value="${box.weight || ''}" onchange="updateBox(${i}, 'weight', this.value)">
-
-      <label>Max Load On Top (${data.units.weight}, optional)</label>
-      <input type="number" value="${box.maxLoad || ''}" onchange="updateBox(${i}, 'maxLoad', this.value)">
-
-      <label>
-        <input type="checkbox" ${box.upright ? "checked" : ""}
-          onchange="updateBox(${i}, 'upright', this.checked)">
-        Must remain upright
-      </label>
-
-      <button onclick="removeBox(${i})">Remove</button>
-    `;
-    container.appendChild(div);
-  });
-}
-
-function addBox() {
-  data.manifest.push({ w: 16, h: 12, d: 12, upright: false });
-  save();
-  renderManifest();
-}
-
-function updateBox(i, field, value) {
-  data.manifest[i][field] =
-    field === "upright" ? value : value === "" ? undefined : Number(value);
-  save();
-}
-
-function removeBox(i) {
-  data.manifest.splice(i, 1);
-  save();
-  renderManifest();
-}
-
-// ===== CAMERA START =====
 async function startCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode: "environment" }
   });
   video.srcObject = stream;
-  streamStarted = true;
-  draw();
+  render();
 }
 
 document.getElementById("startButton").onclick = startCamera;
 
-// ===== DRAW LOOP =====
+// ================== RESIZE ==================
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -124,31 +21,126 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-function draw() {
-  if (!streamStarted) return;
+// ================== DATA ==================
+const data = JSON.parse(localStorage.getItem("ghoststack_data")) || {
+  pallet: { w: 48, d: 40 },
+  manifest: []
+};
 
+// ================== STACK LOGIC ==================
+function getBestPlacement(box) {
+  const pallet = data.pallet;
+  const scale = 3;
+
+  // Allowed orientations
+  let orientations = [];
+
+  if (box.upright) {
+    // Top must stay up
+    orientations = [
+      { w: box.w, h: box.h, d: box.d },
+      { w: box.d, h: box.h, d: box.w }
+    ];
+  } else {
+    // Any orientation
+    orientations = [
+      { w: box.w, h: box.h, d: box.d },
+      { w: box.w, h: box.d, d: box.h },
+      { w: box.h, h: box.w, d: box.d },
+      { w: box.h, h: box.d, d: box.w },
+      { w: box.d, h: box.w, d: box.h },
+      { w: box.d, h: box.h, d: box.w }
+    ];
+  }
+
+  // Score orientations (simple heuristic for now)
+  let best = orientations[0];
+  let bestScore = 0;
+
+  for (let o of orientations) {
+    const footprint = o.w * o.d;
+    const fits =
+      o.w <= pallet.w &&
+      o.d <= pallet.d;
+
+    if (!fits) continue;
+
+    const score = footprint / o.h; // prefer stability
+    if (score > bestScore) {
+      bestScore = score;
+      best = o;
+    }
+  }
+
+  // Center on pallet (stacking layers later)
+  return {
+    ...best,
+    x: pallet.w / 2 - best.w / 2,
+    y: pallet.d / 2 - best.d / 2,
+    scale
+  };
+}
+
+// ================== DRAW GHOST ==================
+function drawGhost(box) {
+  const p = getBestPlacement(box);
+  const s = p.scale;
+
+  const bw = p.w * s;
+  const bh = p.h * s;
+  const bd = p.d * s * 0.6;
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height * 0.65;
+
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.beginPath();
+  ctx.ellipse(cx + bw / 2, cy + bh, bw * 0.5, bh * 0.15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Front
+  ctx.fillStyle = "rgba(0,255,160,0.45)";
+  ctx.fillRect(cx, cy, bw, bh);
+
+  // Top
+  ctx.fillStyle = "rgba(200,255,230,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + bd, cy - bd);
+  ctx.lineTo(cx + bw + bd, cy - bd);
+  ctx.lineTo(cx + bw, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Side
+  ctx.fillStyle = "rgba(0,220,140,0.45)";
+  ctx.beginPath();
+  ctx.moveTo(cx + bw, cy);
+  ctx.lineTo(cx + bw + bd, cy - bd);
+  ctx.lineTo(cx + bw + bd, cy + bh - bd);
+  ctx.lineTo(cx + bw, cy + bh);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ================== RENDER LOOP ==================
+function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Pallet outline (reference only)
   ctx.strokeStyle = "yellow";
   ctx.lineWidth = 3;
   ctx.strokeRect(
     canvas.width * 0.25,
-    canvas.height * 0.6,
+    canvas.height * 0.65,
     canvas.width * 0.5,
     canvas.width * 0.35
   );
 
   if (data.manifest.length > 0) {
-    ctx.fillStyle = "rgba(0,255,150,0.4)";
-    ctx.fillRect(
-      canvas.width * 0.32,
-      canvas.height * 0.55,
-      120,
-      80
-    );
-    ctx.fillStyle = "white";
-    ctx.fillText("Next box", canvas.width * 0.32, canvas.height * 0.53);
+    drawGhost(data.manifest[0]);
   }
 
-  requestAnimationFrame(draw);
+  requestAnimationFrame(render);
 }
