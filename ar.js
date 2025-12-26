@@ -1,4 +1,4 @@
-// ================== CAMERA ==================
+// ================= CAMERA =================
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -13,7 +13,7 @@ async function startCamera() {
 
 document.getElementById("startButton").onclick = startCamera;
 
-// ================== RESIZE ==================
+// ================= RESIZE =================
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -21,74 +21,95 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// ================== DATA ==================
-const data = JSON.parse(localStorage.getItem("ghoststack_data")) || {
+// ================= DATA =================
+const state = JSON.parse(localStorage.getItem("ghoststack_data")) || {
   pallet: { w: 48, d: 40 },
   manifest: []
 };
 
-// ================== STACK LOGIC ==================
-function getBestPlacement(box) {
-  const pallet = data.pallet;
-  const scale = 3;
-
-  // Allowed orientations
-  let orientations = [];
-
+// ================= ORIENTATION =================
+function getOrientations(box) {
   if (box.upright) {
-    // Top must stay up
-    orientations = [
+    return [
       { w: box.w, h: box.h, d: box.d },
       { w: box.d, h: box.h, d: box.w }
     ];
-  } else {
-    // Any orientation
-    orientations = [
-      { w: box.w, h: box.h, d: box.d },
-      { w: box.w, h: box.d, d: box.h },
-      { w: box.h, h: box.w, d: box.d },
-      { w: box.h, h: box.d, d: box.w },
-      { w: box.d, h: box.w, d: box.h },
-      { w: box.d, h: box.h, d: box.w }
-    ];
   }
-
-  // Score orientations (simple heuristic for now)
-  let best = orientations[0];
-  let bestScore = 0;
-
-  for (let o of orientations) {
-    const footprint = o.w * o.d;
-    const fits =
-      o.w <= pallet.w &&
-      o.d <= pallet.d;
-
-    if (!fits) continue;
-
-    const score = footprint / o.h; // prefer stability
-    if (score > bestScore) {
-      bestScore = score;
-      best = o;
-    }
-  }
-
-  // Center on pallet (stacking layers later)
-  return {
-    ...best,
-    x: pallet.w / 2 - best.w / 2,
-    y: pallet.d / 2 - best.d / 2,
-    scale
-  };
+  return [
+    { w: box.w, h: box.h, d: box.d },
+    { w: box.w, h: box.d, d: box.h },
+    { w: box.h, h: box.w, d: box.d },
+    { w: box.h, h: box.d, d: box.w },
+    { w: box.d, h: box.w, d: box.h },
+    { w: box.d, h: box.h, d: box.w }
+  ];
 }
 
-// ================== DRAW GHOST ==================
-function drawGhost(box) {
-  const p = getBestPlacement(box);
-  const s = p.scale;
+// ================= PALLET SIM =================
+function planPallet(manifest, pallet) {
+  let layers = [];
+  let currentLayer = { z: 0, boxes: [], cursorX: 0, cursorY: 0, rowDepth: 0 };
 
-  const bw = p.w * s;
-  const bh = p.h * s;
-  const bd = p.d * s * 0.6;
+  for (let box of manifest) {
+    let placed = false;
+    let bestFit = null;
+    let bestScore = -Infinity;
+
+    for (let o of getOrientations(box)) {
+      if (o.w > pallet.w || o.d > pallet.d) continue;
+
+      const footprint = o.w * o.d;
+      const score = footprint / o.h;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestFit = o;
+      }
+    }
+
+    if (!bestFit) continue;
+
+    if (currentLayer.cursorX + bestFit.w > pallet.w) {
+      currentLayer.cursorX = 0;
+      currentLayer.cursorY += currentLayer.rowDepth;
+      currentLayer.rowDepth = 0;
+    }
+
+    if (currentLayer.cursorY + bestFit.d > pallet.d) {
+      layers.push(currentLayer);
+      currentLayer = {
+        z: currentLayer.z + bestFit.h,
+        boxes: [],
+        cursorX: 0,
+        cursorY: 0,
+        rowDepth: 0
+      };
+    }
+
+    currentLayer.boxes.push({
+      ...bestFit,
+      x: currentLayer.cursorX,
+      y: currentLayer.cursorY,
+      z: currentLayer.z
+    });
+
+    currentLayer.cursorX += bestFit.w;
+    currentLayer.rowDepth = Math.max(currentLayer.rowDepth, bestFit.d);
+  }
+
+  layers.push(currentLayer);
+  return layers;
+}
+
+// ================= PLAN ONCE =================
+const palletPlan = planPallet(state.manifest, state.pallet);
+
+// ================= DRAW =================
+function drawGhostBox(box) {
+  const scale = 3;
+  const bw = box.w * scale;
+  const bh = box.h * scale;
+  const bd = box.d * scale * 0.6;
 
   const cx = canvas.width / 2;
   const cy = canvas.height * 0.65;
@@ -124,11 +145,11 @@ function drawGhost(box) {
   ctx.fill();
 }
 
-// ================== RENDER LOOP ==================
+// ================= RENDER =================
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Pallet outline (reference only)
+  // Pallet outline
   ctx.strokeStyle = "yellow";
   ctx.lineWidth = 3;
   ctx.strokeRect(
@@ -138,8 +159,8 @@ function render() {
     canvas.width * 0.35
   );
 
-  if (data.manifest.length > 0) {
-    drawGhost(data.manifest[0]);
+  if (palletPlan.length && palletPlan[0].boxes.length) {
+    drawGhostBox(palletPlan[0].boxes[0]);
   }
 
   requestAnimationFrame(render);
