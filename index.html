@@ -10,6 +10,10 @@
   <!-- PWA -->
   <link rel="manifest" href="manifest.json">
 
+  <!-- App Icons (fallback for some browsers) -->
+  <link rel="icon" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-512.png">
+
   <style>
     html, body {
       margin: 0;
@@ -51,7 +55,6 @@
 
   <script src="ar.js"></script>
 
-  <!-- Service Worker -->
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("service-worker.js");
